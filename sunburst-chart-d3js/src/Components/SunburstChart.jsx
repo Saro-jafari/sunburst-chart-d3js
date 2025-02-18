@@ -50,7 +50,7 @@ const sunburstData = {
 			name: 'How',
 			children: data.how.map(item => ({
 				name: item.question,
-				value: item.searchVolume, 
+				value: item.searchVolume,
 			})),
 		},
 		{
@@ -90,7 +90,7 @@ const sunburstData = {
 		},
 	],
 };
-
+console.log(sunburstData);
 function SunburstChart() {
 	return <Chart data={sunburstData} />;
 }

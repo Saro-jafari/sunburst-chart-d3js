@@ -1,15 +1,17 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useMemo } from 'react';
 import * as d3 from 'd3';
 
-const SunburstChart = ({ data, width = 928 }) => {
+const SunburstChart = ({ data, width = 500, height = 500 }) => {
 	const svgRef = useRef();
-	const height = width;
-	const radius = width / 6;
 
-	useEffect(() => {
-		if (!data) return;
+	const outerRadius = width / 3;
+	const innerRadius = outerRadius * 0.7;
 
-		const color = d3.scaleOrdinal(d3.quantize(d3.interpolateRainbow, data.children.length + 1));
+	// محاسبه بخش‌های دایره‌ای و رنگ‌ها
+	const { arcOuter, arcInner, colorScale, root } = useMemo(() => {
+		if (!data) return { arcOuter: null, arcInner: null, colorScale: null, root: null };
+
+		const colorScale = d3.scaleSequential(d3.interpolateOranges).domain([0, 100000]);
 
 		const hierarchy = d3
 			.hierarchy(data)
@@ -19,79 +21,67 @@ const SunburstChart = ({ data, width = 928 }) => {
 		const root = d3.partition().size([2 * Math.PI, hierarchy.height + 1])(hierarchy);
 		root.each(d => (d.current = d));
 
-		const arc = d3
+		const arcOuter = d3
 			.arc()
 			.startAngle(d => d.x0)
 			.endAngle(d => d.x1)
-			.padAngle(d => Math.min((d.x1 - d.x0) / 2, 0.005))
-			.padRadius(radius * 1.5)
-			.innerRadius(d => d.y1 * radius)
-			.outerRadius(d => d.y0 * radius);
+			.innerRadius(outerRadius * 0.9)
+			.outerRadius(outerRadius)
+			.padAngle(0.01);
+
+		const arcInner = d3
+			.arc()
+			.startAngle(d => d.x0)
+			.endAngle(d => d.x1)
+			.innerRadius(innerRadius * 0.3)
+			.outerRadius(innerRadius)
+			.padAngle(0.01);
+
+		return { arcOuter, arcInner, colorScale, root };
+	}, [data]);
+
+	useEffect(() => {
+		if (!root) return;
 
 		const svg = d3
 			.select(svgRef.current)
-			.attr('viewBox', [-width / 2, -height / 2, width, width])
-			.style('font', '10px sans-serif');
+			.attr('viewBox', [-width / 2, -height / 2, width, height])
+			.style('font', '12px sans-serif');
 
-		const path = svg
-			.append('g')
+		const outerGroup = svg.selectAll('.outer-group').data([root]).join('g').attr('class', 'outer-group');
+
+		const innerGroup = svg.selectAll('.inner-group').data([root]).join('g').attr('class', 'inner-group');
+
+		const outerPaths = outerGroup
 			.selectAll('path')
-			.data(root.descendants().slice(1))
+			.data(root.descendants().filter(d => d.depth === 1))
 			.join('path')
-			.attr('fill', d => {
-				while (d.depth > 1) d = d.parent;
-				return color(d.data.name);
+			.attr('fill', 'Moccasin')
+			.attr('d', arcOuter)
+			.style('transition', 'fill 0.3s ease, filter 0.3s ease')
+			.on('mouseover', function (event, d) {
+				const color = d3.interpolateOranges(0.6);
+				d3.select(this).attr('fill', color).style('filter', 'drop-shadow(0 0 10px rgba(255, 165, 0, 0.8))');
+
+				innerGroup
+					.selectAll('path')
+					.filter(inner => inner.parent === d)
+					.attr('fill', inner => colorScale(inner.value))
+					.style('filter', 'drop-shadow(0 0 5px rgba(255, 165, 0, 0.6))');
 			})
-			.attr('fill-opacity', d => (arcVisible(d.current) ? (d.children ? 0.6 : 0.4) : 0))
-			.attr('pointer-events', 'auto')
-			.attr('d', d => arc(d.current))
-			.on('mouseover', (event, p) => {
-				d3.select(event.target).attr('fill-opacity', 0.8);
-			})
-			.on('mouseout', (event, p) => {
-				d3.select(event.target).attr('fill-opacity', d => (arcVisible(d.current) ? (d.children ? 0.6 : 0.4) : 0));
+			.on('mouseout', function () {
+				d3.select(this).attr('fill', 'Moccasin').style('filter', 'none');
+				innerGroup.selectAll('path').attr('fill', 'white').style('filter', 'none');
 			});
 
-		path.append('title').text(
-			d =>
-				`${d
-					.ancestors()
-					.map(d => d.data.name)
-					.reverse()
-					.join('/')}`,
-		);
-
-		const label = svg
-			.append('g')
-			.attr('pointer-events', 'none')
-			.attr('text-anchor', 'middle')
-			.style('user-select', 'none')
-			.selectAll('text')
-			.data(root.descendants().slice(1))
-			.join('text')
-			.attr('dy', '0.35em')
-			.attr('fill-opacity', d => +labelVisible(d.current))
-			.attr('transform', d => labelTransform(d.current))
-			.text(d => d.data.name);
-
-		const centerLabel = svg.append('text').attr('text-anchor', 'middle').attr('dy', '-0.5em').style('font-size', '16px').text('سوالات');
-
-		const parent = svg.append('circle').datum(root).attr('r', radius).attr('fill', 'none').attr('pointer-events', 'none');
-	}, [data]);
-
-	function arcVisible(d) {
-		return d.y1 <= 3 && d.y0 >= 1 && d.x1 > d.x0;
-	}
-
-	function labelVisible(d) {
-		return d.y1 <= 3 && d.y0 >= 1 && (d.y1 - d.y0) * (d.x1 - d.x0) > 0.03;
-	}
-
-	function labelTransform(d) {
-		const x = (((d.x0 + d.x1) / 2) * 180) / Math.PI;
-		const y = ((d.y0 + d.y1) / 2) * radius;
-		return `rotate(${x - 90}) translate(${y},0) rotate(${x < 180 ? 0 : 180})`;
-	}
+		const innerPaths = innerGroup
+			.selectAll('path')
+			.data(root.descendants().filter(d => d.depth === 2))
+			.join('path')
+			.attr('fill', 'white')
+			.attr('d', arcInner)
+			.style('transition', 'fill 0.3s ease, filter 0.3s ease');
+	}, [root, arcOuter, arcInner, colorScale]);
 
 	return <svg ref={svgRef}></svg>;
 };
