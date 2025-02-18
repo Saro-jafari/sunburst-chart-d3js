@@ -1,11 +1,7 @@
-import './App.css';
+import SunburstChart from './Components/SunburstChart';
 
-const App = () => {
-	return (
-		<div>
-			<h1>Sunburst Chart</h1>
-		</div>
-	);
-};
+function App() {
+	return <SunburstChart />;
+}
 
 export default App;
